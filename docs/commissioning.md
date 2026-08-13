@@ -24,7 +24,8 @@ pass or fail a valve against its ISO 5208 rate class with evidence.
 | 1.6 | Land loop 1 on the mapped XLR pins. Route via the DLS002 junction box — claim the SPARE port, or physically relabel an unused PT port. | Continuity panel → junction box |
 | 1.7 | Land the pair on one ELM3148 channel per its **current-mode differential** terminal diagram — not the shared 0 V rail used by voltage channels. | Loop powers, no fault LED |
 | 1.8 | **Seal the catch vessel.** Lid with a close-fitting port for the drain tube. | No open water surface |
-| 1.9 | Route the drain tube so it **discharges above the free surface**, never dipping in, and so its weight and stiffness are carried by the frame with a slack loop before the vessel. | Tube exerts no force on the vessel at any fill level |
+| 1.9 | Land loop 2 (flowmeter) on ELM3148 channel B. Mount the catch-vessel temperature sensor **on the vessel body**, not in free air. | Both channels read, no fault LED |
+| 1.10 | Route the drain tube so it **discharges above the free surface**, never dipping in, and so its weight and stiffness are carried by the frame with a slack loop before the vessel. | Tube exerts no force on the vessel at any fill level |
 
 ### 1.2 — The 4-pin XLR
 
@@ -34,7 +35,7 @@ Two positives and two negatives in one shell is **two independent 2-wire
 | Pin pair | Assignment |
 |---|---|
 | Loop 1 (+/−) | Primary load cell → conditioner → ELM3148 **channel A** |
-| Loop 2 (+/−) | Corroborating channel → ELM3148 **channel B** |
+| Loop 2 (+/−) | Flowmeter → ELM3148 **channel B** (corroboration) |
 
 The connector was therefore already provisioned for the second channel that
 rejects the two error terms a single gravimetric channel cannot distinguish
@@ -94,6 +95,7 @@ src/
   POUs/  PRG_HydroLeakDetection.st  sequence, scaling, verdict
          FB_LeastSquaresSlope.st    rolling-window regression, reusable
          F_ISO5208LimitMlMin.st     bore-scaled acceptance limit
+         F_MinHoldMinutes.st        hold duration required for that threshold
 ```
 
 Build order and rationale are in the file headers. The four decisions that
@@ -108,6 +110,13 @@ matter:
   and conceals the net mass loss that reveals an unsealed vessel.
 - **Fit quality gates the verdict.** Poor R² means the rig was disturbed —
   a retest, not a pass.
+- **Hold adequacy is enforced.** Thermal drift is a fixed mass error over the
+  hold, so as a rate error it scales as drift ÷ T. `F_MinHoldMinutes` derives
+  the hold each valve needs, and a hold too short to resolve its own threshold
+  cannot return a pass. Because the ISO 5208 limit scales with bore, small-bore
+  valves need *longer* holds than large ones.
+- **The slope window is derived from the hold**, not fixed. A fixed 10-minute
+  window never fills on a 10-minute hold, so no verdict would ever be issued.
 
 > **Before this system passes or fails anything:** the ISO 5208 coefficients in
 > `GVL_HydroLeak` are placeholders and `F_ISO5208LimitMlMin` returns 0.0 for
@@ -127,7 +136,7 @@ This is where the first real test log is generated.
 | 4.2 **Known-mass linearity** | Certified masses across range (10 g, 50 g, 200 g, 500 g). | Within the cell's stated non-linearity |
 | 4.3 **Single-drip resolution** | Pipette ≈0.05 mL drops at measured intervals. | Each drop resolvable as a step in the DINT trace and in the CSV |
 | 4.4 **Simulated micro-leak** | Syringe pump at 0.01, 0.02, 0.05 mL/min, 30 min each. | `rLeakRateMlMin` tracks set rate within ±20 % at 0.01 mL/min, tightening at higher rates |
-| 4.5 **Thermal sensitivity** | Repeat 4.1 while logging vessel temperature over a ≥2 °C swing. | Quantify mg/°C actually achieved. Compare against 50 mg/°C (1 kg cell) predicted. Decides whether temperature control is needed |
+| 4.5 **Thermal sensitivity** — *the pivotal test* | Repeat 4.1 while logging vessel temperature over a ≥2 °C swing. | Measure mg/°C of the **assembled chain** and **confirm the sign**. Populate `c_rDriftMgPerDegC`. Then re-run with correction enabled and record the residual — that residual sets the required hold for every valve. Getting the sign backwards doubles the error and still looks plausible |
 | 4.6 **Vibration rejection** | Repeat 4.4 with the hydro pump running off-rig. | Slope stays within 4.4 tolerance. If not, revisit the FIR setting (2.2) or the mechanical isolation (1.3) **before rig install** |
 | 4.7 **Creep characterisation** | Load the vessel, log 60 min unpressurised without taring. | Establishes how long settling must actually be. Adjust `c_tSettleTime` from the measured decay, don't assume 5 min |
 
@@ -143,7 +152,7 @@ Tests 4.1, 4.4 and 4.6 are the ones that decide whether the system works.
 | 5.2 | Controlled drip at the valve stem/seat (syringe, not a real leak) mid-cycle. | ALARM latches; CSV captures the transition |
 | 5.3 | Energise adjacent channels (upstream/downstream PT, thermocouples), re-run 5.1's zero-stability check. | Reading must not move — cross-talk check |
 | 5.4 | Pull the XLR mid-test. | Under-range detected, state → ABORTED. **A broken loop reading 0 mA scales to a large negative mass; it must never read as a very tight valve** |
-| 5.5 | Log channel B alongside channel A through a full cycle. | Establishes B's noise floor before the cross-check is armed |
+| 5.5 | Log the flowmeter (ch. B) alongside ch. A through a full cycle at 0.01–0.05 mL/min. | **Establish where the flowmeter stops reading.** At 0.01 mL/min most meters are at or below minimum flow, where they read low or stall. A flowmeter agreeing with "no leak" may simply be below its threshold — that is not corroboration. Do not arm the cross-check until this is characterised |
 
 ---
 
@@ -167,6 +176,10 @@ Tests 4.1, 4.4 and 4.6 are the ones that decide whether the system works.
 
 - Populate ISO 5208 coefficients in `GVL_HydroLeak` from the controlled copy;
   have the values witnessed and recorded.
+- Populate `c_rDriftMgPerDegC` and `c_rExpectedExcursionC` from Stage 4.5, and
+  publish the resulting required-hold table per DN and rate class. Operators
+  need to know before scheduling that a small-bore valve on a tight class needs
+  a longer hold, not a shorter one.
 - Archive Stage 4–6 datasets as the baseline.
 - Write the per-unit commissioning checklist (Temp Cab §8.3 format:
   prototyping sign-off → rollout order → per-unit checklist).
@@ -204,5 +217,5 @@ rescaled from the raw column instead of being discarded.
 | 2 | ISO 5208 coefficients from the controlled copy | Any pass/fail verdict |
 | 3 | Maximum captured mass per test → cell capacity | Purchase order |
 | 4 | Hold duration in the governing procedure | Signal budget |
-| 5 | Catch vessel temperature controlled or ambient | Whether a 1 kg cell is usable |
-| 6 | What is on loop 2 — reference cell or flowmeter | Stage 5.5 |
+| 5 | Flowmeter minimum measurable flow — specify when purchasing | Stage 5.5 cross-check |
+| 6 | Achieved mg/°C and its **sign** from Stage 4.5 | Every hold duration on the rig |

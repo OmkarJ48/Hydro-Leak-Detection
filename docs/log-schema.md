@@ -14,12 +14,15 @@ One CSV per test cycle, written by `PRG_HydroLeakDetection` via `SysFile`
 | `mass_g` | real | g | Absolute mass on the cell |
 | `captured_g` | real | g | Tared. **May be negative — do not clamp** |
 | `raw_dint_chb` | dint | counts | Corroborating loop, raw |
-| `corroboration_eng` | real | — | Scaled ch. B |
-| `vessel_temp_c` | real | °C | Blank if no temp channel |
+| `flow_ml_min` | real | mL/min | Scaled ch. B. **Blank/zero may mean below minimum flow, not no leak** |
+| `vessel_temp_c` | real | °C | On the vessel body, not free air |
+| `drift_correction_g` | real | g | Applied thermal correction. Logged separately so it can be undone |
 | `leak_rate_ml_min` | real | mL/min | Fitted slope ÷ density |
 | `threshold_ml_min` | real | mL/min | Active limit for this valve |
 | `fit_r2` | real | — | 0.0–1.0 |
 | `window_full` | bool | — | Rate is meaningless while false |
+| `required_hold_min` | real | min | Derived from threshold and drift |
+| `hold_too_short` | bool | — | True blocks any pass verdict |
 
 ## Why raw counts are logged alongside engineering units
 
@@ -34,6 +37,13 @@ losing water faster than the valve leaks into it: an unsealed lid, a thermal
 excursion, or a drift problem. Clamping at zero hides exactly the symptom that
 would have caught an evaporation fault, and rectifies noise into an apparent
 leak on a tight valve.
+
+## Why the drift correction is logged separately
+
+The correction is subtracted from captured mass before the fit. Logging it as
+its own column means a wrong coefficient — or a wrong *sign*, which doubles the
+error instead of removing it while still looking plausible — can be backed out
+and the test rescored, rather than the data being thrown away.
 
 ## Session log
 

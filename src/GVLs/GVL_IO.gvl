@@ -29,15 +29,23 @@ VAR_GLOBAL
     bChAOverrange       AT %I* : BOOL;   (* > 20 mA: overload or short *)
     bChAError           AT %I* : BOOL;
 
-    (* --- ELM3148 channel B: corroborating channel, 4-20 mA --- *)
-    diRawCorrobChB      AT %I* : DINT;
+    (* --- ELM3148 channel B: flowmeter, 4-20 mA --- *)
+    (* Independent physics, so it does not share the gravimetric channel's two
+       dominant error terms. Note it has its own: at 0.01 mL/min most flowmeters
+       are at or below their stated minimum flow, where they read low or stall
+       entirely. Treat channel B as corroboration, never as the primary, until
+       Stage 5.5 establishes its behaviour at the bottom of the range. *)
+    diRawFlowChB        AT %I* : DINT;
     bChBUnderrange      AT %I* : BOOL;
     bChBOverrange       AT %I* : BOOL;
     bChBError           AT %I* : BOOL;
 
-    (* --- Catch vessel temperature, for drift correction --- *)
-    (* Optional but cheap. Logging it turns zero drift from an unknown into a
-       correctable term. See docs/measurement-budget.md 3.7. *)
+    (* --- Catch vessel temperature --- *)
+    (* MANDATORY, not optional. With a 1 kg cell in an uncontrolled workshop,
+       zero drift is the largest remaining error term (50 mg/degC against a
+       10 mg/min signal). Logging vessel temperature is what turns it from an
+       unknown into a correctable one, and it is the cheapest channel on the
+       rack. See docs/measurement-budget.md 2.2. *)
     diRawVesselTempC    AT %I* : DINT;
-    bTempChannelPresent        : BOOL := FALSE;
+    bTempChannelPresent        : BOOL := TRUE;
 END_VAR

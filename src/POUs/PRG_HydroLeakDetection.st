@@ -33,9 +33,19 @@
 
     7. Fit quality gates the verdict. A disturbed run is a retest, not a pass.
 
-    Corroborating channel B is read and logged but does not yet gate the
-    verdict -- that cross-check is defined in docs/commissioning.md Stage 5.3
-    and should not be armed until the bench tests establish its noise floor.
+    8. Threshold-aware hold enforcement. Thermal drift is a fixed mass error
+       over the hold, so as a rate error it scales as drift/T -- the hold a
+       valve needs is therefore derived from its own threshold, not scheduled.
+       A hold too short to resolve the threshold cannot return a pass.
+
+    9. Vessel temperature captured at tare and used to correct zero drift
+       in-line. Mandatory here, not optional: with a 1 kg cell in an
+       uncontrolled workshop, drift is 50 mg/degC against a 10 mg/min signal.
+
+    Channel B (flowmeter) is scaled and logged but does not gate the verdict.
+    At 0.01 mL/min most flowmeters sit at or below minimum flow, where they
+    read low or stall -- see docs/commissioning.md Stage 5.5. Do not arm it as
+    a cross-check until that is characterised on the bench.
 *)
 PROGRAM PRG_HydroLeakDetection
 VAR
@@ -62,6 +72,20 @@ VAR
     bResultTrustworthy     : BOOL;
     bLeakWithinLimit       : BOOL;
     bTestComplete          : BOOL;
+
+    (* --- Hold adequacy --- *)
+    rRequiredHoldMin       : REAL;   (* derived from threshold and drift *)
+    rActualHoldMin         : REAL;
+    bHoldTooShort          : BOOL;
+    rExpectedDriftMg       : REAL;
+
+    (* --- Derived window --- *)
+    uiSlopeWindow          : UINT;
+
+    (* --- Thermal drift correction --- *)
+    rTareTempC             : REAL;
+    rDriftCorrectionG      : REAL;
+    bDriftCorrEnabled      : BOOL := TRUE;
 
     (* --- State --- *)
     eState                 : E_LeakState := E_LeakState.IDLE;
@@ -102,10 +126,21 @@ END_IF
 
 rSpanCounts := DINT_TO_REAL(GVL_HydroLeak.c_diChB_Raw_20mA - GVL_HydroLeak.c_diChB_Raw_4mA);
 IF rSpanCounts <> 0.0 THEN
-    rCorroborationEng := (DINT_TO_REAL(GVL_IO.diRawCorrobChB - GVL_HydroLeak.c_diChB_Raw_4mA)
+    rCorroborationEng := (DINT_TO_REAL(GVL_IO.diRawFlowChB - GVL_HydroLeak.c_diChB_Raw_4mA)
                           / rSpanCounts) * GVL_HydroLeak.c_rChB_SpanEng;
 ELSE
     rCorroborationEng := 0.0;
+END_IF
+
+(* Vessel temperature. Scaled linearly over the same 4-20 mA convention. *)
+IF GVL_IO.bTempChannelPresent THEN
+    rSpanCounts := DINT_TO_REAL(GVL_HydroLeak.c_diTemp_Raw_20mA - GVL_HydroLeak.c_diTemp_Raw_4mA);
+    IF rSpanCounts <> 0.0 THEN
+        rVesselTempC := GVL_HydroLeak.c_rTemp_At4mA
+                        + (DINT_TO_REAL(GVL_IO.diRawVesselTempC - GVL_HydroLeak.c_diTemp_Raw_4mA)
+                           / rSpanCounts)
+                          * (GVL_HydroLeak.c_rTemp_At20mA - GVL_HydroLeak.c_rTemp_At4mA);
+    END_IF
 END_IF
 
 // =============================================================================
@@ -116,6 +151,43 @@ END_IF
    GVL_HydroLeak and are PLACEHOLDERS until verified against the controlled
    copy of the standard -- see that file's header. *)
 rActiveThresholdMlMin := F_ISO5208LimitMlMin(eClass := eRateClass, rDN_mm := rValveDN_mm);
+
+// =============================================================================
+// 3b. Is the requested hold long enough to test that threshold?
+// =============================================================================
+(* Thermal drift is a fixed mass error over the hold; as a RATE error it scales
+   as drift/T. So the hold a valve needs is derivable rather than scheduled --
+   and because the threshold scales with bore, a SMALL-bore valve on a tight
+   class needs a LONGER hold than a large one. That is the opposite of what
+   test schedules usually assume, which is why this is computed and enforced
+   rather than trusted as an input. *)
+rExpectedDriftMg := GVL_HydroLeak.c_rDriftMgPerDegC * GVL_HydroLeak.c_rExpectedExcursionC;
+
+rRequiredHoldMin := F_MinHoldMinutes(
+    rThresholdMlMin := rActiveThresholdMlMin,
+    rTotalDriftMg   := rExpectedDriftMg,
+    rDensityGPerMl  := rFluidDensityGPerMl,
+    rErrorAllowance := GVL_HydroLeak.c_rErrorAllowance
+);
+
+rActualHoldMin := TIME_TO_REAL(tHoldDuration) / 60000.0;
+bHoldTooShort  := (rActualHoldMin < rRequiredHoldMin);
+
+// =============================================================================
+// 3c. Slope window, derived from the hold
+// =============================================================================
+(* A fixed window never fills on a shorter hold, so no verdict would ever be
+   issued. Scale it to the hold and clamp at both ends. *)
+uiSlopeWindow := REAL_TO_UINT(
+    (rActualHoldMin * 60.0 * GVL_HydroLeak.c_rWindowFractionHold)
+    / GVL_HydroLeak.c_rSampleIntervalSec );
+
+IF uiSlopeWindow < GVL_HydroLeak.c_uiMinWindowSamples THEN
+    uiSlopeWindow := GVL_HydroLeak.c_uiMinWindowSamples;
+END_IF
+IF uiSlopeWindow > GVL_HydroLeak.c_uiMaxWindowSamples THEN
+    uiSlopeWindow := GVL_HydroLeak.c_uiMaxWindowSamples;
+END_IF
 
 // =============================================================================
 // 4. Timers -- serviced before the state logic so .Q and .ET are current
@@ -152,9 +224,12 @@ CASE eState OF
     E_LeakState.TARED:
         (* Zero captured once, at the end of settling. Then the opening
            minutes of the pressurised hold are discarded so residual creep and
-           the thermal transient from pressurisation stay out of the fit. *)
+           the thermal transient from pressurisation stay out of the fit.
+           Vessel temperature is captured with the tare -- drift is corrected
+           against the temperature at which the zero was taken. *)
         IF fbDiscardTimer.ET = T#0S THEN
             rTareMassG := rAbsoluteMassG;
+            rTareTempC := rVesselTempC;
         END_IF
 
         IF fbDiscardTimer.Q THEN
@@ -188,9 +263,25 @@ END_CASE
 (* Deliberately unclamped. Negative captured mass is real information: the
    vessel is losing water faster than the valve leaks into it, which indicates
    an unsealed vessel or a thermal problem -- not a tight valve. *)
+(* Thermal drift correction. With a 1 kg cell in an uncontrolled workshop this
+   is the largest remaining term -- 50 mg/degC against a 10 mg/min signal. The
+   coefficient must come from the Stage 4.5 characterisation of the assembled
+   chain, not from the cell datasheet.
+
+   Sign: a positive temperature excursion from the tare temperature produces a
+   positive apparent mass, so it is SUBTRACTED. Confirm the sign empirically in
+   Stage 4.5 -- getting it backwards doubles the error instead of removing it,
+   and the result still looks plausible. *)
+IF bDriftCorrEnabled AND GVL_IO.bTempChannelPresent THEN
+    rDriftCorrectionG := (rVesselTempC - rTareTempC)
+                         * GVL_HydroLeak.c_rDriftMgPerDegC / 1000.0;
+ELSE
+    rDriftCorrectionG := 0.0;
+END_IF
+
 IF eState = E_LeakState.TARED OR eState = E_LeakState.TESTING
    OR eState = E_LeakState.ALARM THEN
-    rCapturedMassG := rAbsoluteMassG - rTareMassG;
+    rCapturedMassG := (rAbsoluteMassG - rTareMassG) - rDriftCorrectionG;
 ELSE
     rCapturedMassG := 0.0;
 END_IF
@@ -200,7 +291,7 @@ fbSlope(
     bReset       := FALSE,
     rTimeSec     := rElapsedSec,
     rValue       := rCapturedMassG,
-    uiWindowSize := GVL_HydroLeak.c_uiSlopeWindowSize
+    uiWindowSize := uiSlopeWindow
 );
 
 rFitR2 := fbSlope.rR2;
@@ -228,10 +319,14 @@ fbAlarmDebounce(
 // =============================================================================
 // 8. Verdict
 // =============================================================================
+(* bHoldTooShort is a hard gate, not a warning. A hold too short to resolve the
+   threshold being tested cannot produce a pass -- the measurement simply does
+   not carry the information, however clean the fit looks. *)
 bResultTrustworthy := bTestComplete
                       AND fbSlope.bValid
                       AND fbSlope.bWindowFull
                       AND (rFitR2 >= GVL_HydroLeak.c_rMinR2)
+                      AND NOT bHoldTooShort
                       AND NOT bLoopFault;
 
 bLeakWithinLimit   := bResultTrustworthy

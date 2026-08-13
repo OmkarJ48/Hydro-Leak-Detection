@@ -31,6 +31,7 @@ src/
   POUs/  PRG_HydroLeakDetection.st  sequence, scaling, verdict
          FB_LeastSquaresSlope.st    rolling-window regression, reusable
          F_ISO5208LimitMlMin.st     bore-scaled acceptance limit
+         F_MinHoldMinutes.st        hold required to resolve that threshold
 docs/
   commissioning.md                  Stages 1-7, every step with a pass criterion
   measurement-budget.md             what actually limits sensitivity, with numbers
@@ -93,7 +94,7 @@ negatives), not one redundant loop:
 | Loop | Channel | Purpose |
 |---|---|---|
 | 1 | ELM3148 A | Primary load cell — leak mass |
-| 2 | ELM3148 B | Corroborating channel — rejects drift and vibration |
+| 2 | ELM3148 B | Flowmeter — independent physics, corroboration only |
 
 Pin numbers are **not documented anywhere** and must be established by
 continuity check before wiring goes live —

@@ -27,17 +27,44 @@ VAR_GLOBAL CONSTANT
     (* --- Two-point calibration, channel B. --- *)
     c_diChB_Raw_4mA      : DINT  := 0;
     c_diChB_Raw_20mA     : DINT  := 1048576;
-    c_rChB_SpanEng       : REAL  := 1000.0;
+    c_rChB_SpanEng       : REAL  := 1000.0;   (* flowmeter full scale *)
+
+    (* --- Catch vessel temperature channel, 4-20 mA --- *)
+    c_diTemp_Raw_4mA     : DINT  := 0;
+    c_diTemp_Raw_20mA    : DINT  := 1048576;
+    c_rTemp_At4mA        : REAL  := 0.0;      (* degC at 4 mA *)
+    c_rTemp_At20mA       : REAL  := 50.0;     (* degC at 20 mA *)
 
     (* --- Sequence timing --- *)
     c_tSettleTime        : TIME  := T#5M;    (* creep decay before tare *)
     c_tDiscardAtStart    : TIME  := T#2M;    (* early hold samples excluded *)
     c_tAlarmDebounce     : TIME  := T#30S;   (* rate must persist before latch *)
 
-    (* --- Slope window --- *)
-    c_uiSlopeWindowSize  : UINT  := 600;     (* samples; 600 @ 1 Hz = 10 min *)
-    c_rSampleIntervalSec : REAL  := 1.0;
-    c_rMinR2             : REAL  := 0.90;    (* below this, retest not pass *)
+    (* --- Slope window --------------------------------------------------- *)
+    (* The window is derived per test as a fraction of the hold, not fixed.
+       A fixed 10-minute window never fills on a 10-minute hold, so no verdict
+       would ever be issued. Bounded at both ends: too short and the fit is
+       noise, too long and it cannot fill. *)
+    c_rSampleIntervalSec  : REAL  := 1.0;
+    c_rWindowFractionHold : REAL  := 0.5;    (* window = 50 % of hold *)
+    c_uiMinWindowSamples  : UINT  := 120;    (* 2 min @ 1 Hz *)
+    c_uiMaxWindowSamples  : UINT  := 3600;   (* buffer limit in the FB *)
+    c_rMinR2              : REAL  := 0.90;   (* below this, retest not pass *)
+
+    (* --- Hold adequacy ---------------------------------------------------- *)
+    (* Thermal drift is a fixed mass error over the hold, so as a RATE error it
+       scales as drift/T. The hold needed to test a given threshold is
+       therefore derivable -- see F_MinHoldMinutes. *)
+    c_rErrorAllowance     : REAL  := 0.20;   (* 20 % of threshold *)
+    c_rMaxPracticalHoldMin: REAL  := 120.0;  (* returned when undeterminable *)
+
+    (* Measured mg per degC of the ASSEMBLED chain, from Stage 4.5. The
+       datasheet figure for a 1 kg cell is 50 mg/degC; do not use it here until
+       the bench test confirms what this chain actually does. *)
+    c_rDriftMgPerDegC     : REAL  := 50.0;
+    (* Temperature excursion the vessel sees during a hold. Open workshop,
+       uncontrolled: assume 2 degC until Stage 4.5 measures it. *)
+    c_rExpectedExcursionC : REAL  := 2.0;
 
     (* --- Fluid --- *)
     c_rFluidDensityDflt  : REAL  := 0.998;   (* water at 20 C, g/mL *)

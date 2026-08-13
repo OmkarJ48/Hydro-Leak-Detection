@@ -240,6 +240,81 @@ Items 1–5 cost nothing and together move the budget from *not viable* to
 
 ---
 
+## 3a. The confirmed configuration, and what it costs
+
+Answers now fixed: **catch mass 250 g–1 kg** (so a 1 kg cell), **open workshop,
+uncontrolled temperature**, **hold varies by valve size and spec**.
+
+That combination puts thermal zero drift in charge of the whole design. With
+all five free fixes applied and a 2 °C excursion across the hold:
+
+| Hold | Signal | Drift error | Share |
+|---|---|---|---|
+| 10 min | 100 mg | 100 mg | **100 %** |
+| 20 min | 200 mg | 100 mg | **50 %** |
+| 30 min | 300 mg | 100 mg | **33 %** |
+| 60 min | 600 mg | 100 mg | 17 % |
+
+Drift is a **fixed mass error accumulated over the hold**. It does not grow
+with time, so as a *rate* error it divides by the hold duration. Everything
+follows from that:
+
+### The hold a valve needs is derivable, not scheduled
+
+```
+T_min = k × TotalDrift_mg / (Threshold_mL_min × density × 1000)
+```
+
+with `k = 1/error_allowance` (5 for 20 %). Uncorrected, at 100 mg of drift:
+
+| Threshold | Required hold |
+|---|---|
+| 0.01 mL/min | **50 min** |
+| 0.02 mL/min | 25 min |
+| 0.05 mL/min | 10 min |
+| 0.10 mL/min | 5 min |
+
+Because the ISO 5208 limit scales with nominal bore, **a small-bore valve on a
+tight rate class needs a longer hold than a large one** — the reverse of what
+test schedules normally assume. This is implemented in `F_MinHoldMinutes` and
+enforced as a hard gate: a hold too short to resolve its own threshold cannot
+return a pass, however clean the fit looks.
+
+### The temperature channel pays for itself immediately
+
+A Pt100 on the catch vessel, logged and used to correct the zero, is the
+cheapest channel on the rack. If it removes 80 % of the drift (20 mg residual):
+
+| Threshold | Uncorrected | Corrected |
+|---|---|---|
+| 0.01 mL/min | 50 min | **10 min** |
+| 0.02 mL/min | 25 min | 5 min |
+
+Fifty-minute holds on every small-bore valve is a throughput problem that will
+get the rig abandoned. Ten is tolerable. **This is why `bTempChannelPresent`
+defaults TRUE and the correction is not optional** in an uncontrolled
+workshop — it is what makes the 1 kg cell viable at all.
+
+The correction coefficient must come from the Stage 4.5 measurement of the
+assembled chain, not the cell datasheet. Confirm the **sign** empirically: get
+it backwards and the error doubles rather than cancelling, and the result still
+looks entirely plausible.
+
+### Channel B is a flowmeter — a caution
+
+Independent physics is exactly what corroboration needs; the flowmeter does not
+share the gravimetric channel's drift or vibration terms. But it brings its
+own: **at 0.01 mL/min most flowmeters are at or below their stated minimum
+flow**, where they read low, read nonlinearly, or stall completely. A flowmeter
+agreeing with "no leak" may simply be below its threshold.
+
+Treat channel B as corroboration only, never as the primary, and establish its
+behaviour at the bottom of the range in Stage 5.5 before trusting any
+cross-check. Specify minimum measurable flow, not just accuracy, when
+purchasing.
+
+---
+
 ## 4. Open questions blocking final selection
 
 1. **Maximum captured mass per test.** Sets the required rated capacity, and so
