@@ -427,3 +427,39 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# ---------------------------------------------------------------------------
+# Hydro Leak Detection - project specific
+# ---------------------------------------------------------------------------
+
+# CODESYS / TwinCAT build output and user state
+*.compileinfo
+*.project.~u
+*.library.~u
+_CODESYS_*/
+_boot/
+_CompileInfo/
+*.tpy
+*.tmc.bak
+*.xti.bak
+_Boot/
+_Config/
+_Deployment/
+
+# Beckhoff / EtherCAT generated
+*.esi.bak
+
+# Python analysis tooling
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Licensed standards - obtain via the organisation's subscription,
+# do not redistribute through this repository.
+API*.pdf
+ISO*.pdf
+
+# Measurement data captured from the rig
+data/raw/
+*.csv.gz

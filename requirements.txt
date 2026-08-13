@@ -1,0 +1,5 @@
+# Analysis and documentation tooling.
+# tools/leak_budget.py is pure standard library and needs none of this.
+
+# Reading vendor datasheets and quotations to extract specifications.
+pypdf==6.16.0
