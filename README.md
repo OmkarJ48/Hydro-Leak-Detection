@@ -22,9 +22,15 @@ analysis that drives the hardware decision.
 | `docs/measurement-budget.md` | Error budget for the gravimetric method — what actually limits sensitivity, with numbers taken from the quoted hardware |
 | `docs/hardware-options.md` | Side-by-side comparison of the quoted sensing options |
 | `src/plc/` | CODESYS Structured Text reference implementation |
+| `docs/reference/` | Superseded drafts kept for provenance |
 | `datasheets/` | Vendor datasheets (see *Document handling* below) |
 | `quotations/` | Supplier quotations |
 | `drawings/` | Rig assembly and panel drawings |
+| `tools/` | Analysis scripts |
+
+Four files remain at the repository root pending a removal decision: the three
+API standards, and `Load Cell 2 Kg Datasheet.pdf`, which is a saved HTML error
+page rather than a PDF and needs re-downloading.
 
 ## Measurement principle
 
