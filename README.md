@@ -1,90 +1,122 @@
 # Hydro Leak Detection
 
-Automated capture and quantification of micro-leaks during hydrostatic (body and
-seat) testing of valves, replacing the manual "count the drops" method with a
-continuous gravimetric measurement that can be logged, trended and audited.
+Automated capture and quantification of micro-leaks during hydrostatic (shell
+and seat) testing of valves, replacing the manual "count the drops" method with
+a continuous gravimetric measurement that can be logged, trended and audited.
 
-Target sensitivity is a leak rate on the order of **0.01 mL/min**, which for
-water is **10 mg/min** of captured mass.
+**Target sensitivity: 0.01 mL/min — 10 mg/min of captured water.**
+
+Built to the Rebuild → Requalify → Repeat methodology used on Temperature
+Cabinet Setpoint Control.
 
 ---
 
 ## Status
 
-Feasibility and instrument-selection stage. No production code yet. This
-repository currently holds vendor documentation, quotations and the measurement
-analysis that drives the hardware decision.
+Design and pre-commissioning. Hardware not yet selected; see
+[open items](docs/commissioning.md#open-items). The control logic is written
+and the commissioning sequence is defined, but **the system cannot pass or fail
+a valve yet** — the ISO 5208 coefficients are placeholders and
+`F_ISO5208LimitMlMin` deliberately returns 0.0 until they are populated from
+the controlled copy of the standard.
 
 ## Repository layout
 
-| Path | Contents |
-|---|---|
-| `docs/measurement-budget.md` | Error budget for the gravimetric method — what actually limits sensitivity, with numbers taken from the quoted hardware |
-| `docs/hardware-options.md` | Side-by-side comparison of the quoted sensing options |
-| `src/plc/` | CODESYS Structured Text reference implementation |
-| `docs/reference/` | Superseded drafts kept for provenance |
-| `datasheets/` | Vendor datasheets (see *Document handling* below) |
-| `quotations/` | Supplier quotations |
-| `drawings/` | Rig assembly and panel drawings |
-| `tools/` | Analysis scripts |
-
-Four files remain at the repository root pending a removal decision: the three
-API standards, and `Load Cell 2 Kg Datasheet.pdf`, which is a saved HTML error
-page rather than a PDF and needs re-downloading.
+```
+src/
+  GVLs/  GVL_IO.gvl                 raw process image, AT %I* DINT, both loops
+         GVL_HydroLeak.gvl          calibration constants, ISO 5208 coefficients
+  DUTs/  E_LeakState.dut            IDLE SETTLING TARED TESTING ALARM ABORTED
+         E_ISO5208Class.dut         RATE_A .. RATE_D
+  POUs/  PRG_HydroLeakDetection.st  sequence, scaling, verdict
+         FB_LeastSquaresSlope.st    rolling-window regression, reusable
+         F_ISO5208LimitMlMin.st     bore-scaled acceptance limit
+docs/
+  commissioning.md                  Stages 1-7, every step with a pass criterion
+  measurement-budget.md             what actually limits sensitivity, with numbers
+  hardware-options.md               load cell vs LVDT vs ultrasonic, from the quotes
+  log-schema.md                     CSV columns and why each exists
+  test-logs/                        one dated .md per test session
+  reference/                        superseded drafts, kept for provenance
+tools/
+  leak_budget.py                    re-runs the error budget under any assumptions
+datasheets/  quotations/  drawings/ vendor source documents
+```
 
 ## Measurement principle
 
-Fluid escaping past the seat is collected in a catch vessel resting on a
-compression load cell. Leak **rate** is the slope of captured mass against time
-over the pressurised hold, not the difference between two instantaneous
-readings. Fitting a slope is what makes the method work: it cancels any constant
-offset — tare error, cell zero-balance, the mass of the vessel itself — and
-leaves only drift *within* the hold window as error.
+Fluid escaping past the seat is collected in a **sealed** catch vessel resting
+on a compression load cell. Leak rate is the **slope of captured mass against
+time** over the pressurised hold — not the difference between two instantaneous
+readings.
 
-For water, 1 g of captured mass ≈ 1 mL of leaked volume (0.998 g/mL at 20 °C).
-If the test fluid is inhibited water or another medium, its density must be
-entered per test.
+That choice does the heavy lifting. A slope fit is blind to every constant
+offset in the chain — cell zero balance, tare error, vessel mass, absolute
+calibration error — leaving only drift *within* the hold as error. It also
+produces a rate, which is the unit the acceptance criteria are written in.
 
-## The three numbers that decide feasibility
+For water, 1 g ≈ 1 mL (0.998 g/mL at 20 °C). Other fluids: density is a
+per-test input.
 
-1. **Load cell rated capacity** — drift and creep specs are quoted as a
-   percentage of rated capacity or rated load, so absolute error scales directly
-   with the capacity you buy. Sizing the catch vessel so the cell never sees
-   more than it must is the cheapest sensitivity you will ever get.
-2. **Pressurised hold duration** — signal accumulates linearly with time while
-   random noise averages down. A 60-minute hold is far easier than a 10-minute
-   one.
-3. **Catch vessel temperature and whether it is sealed** — see
-   `docs/measurement-budget.md`. Evaporation from an open vessel is the same
-   order of magnitude as the leak being measured, and it biases results towards
-   *passing* a leaking valve.
+## What actually limits sensitivity
+
+Not resolution. The ELM3148 is a 24-bit converter; mapping 4–20 mA onto
+0–1000 g gives ~0.15 mg/count, so a 10 mg/min leak advances ~67 counts/min.
+
+For a 20-minute hold carrying 200 mg of signal:
+
+| Source | Error | % of signal |
+|---|---|---|
+| **Evaporation, open Ø80 mm vessel** | **84–168 mg** | **42–84 %** |
+| Zero drift, 1 kg cell, 1 °C | 50 mg | 25 % |
+| Creep, load not pre-settled | 50 mg | 25 % |
+| Quantisation, raw value read as `INT` | 30 mg | 15 % |
+
+Evaporation is the one that matters most, and not because it is largest: it
+*removes* mass, so it biases towards **passing a leaking valve**. Five fixes
+cost nothing — seal the vessel, extend the hold, pre-settle before taring,
+declare the input `DINT`, fit a slope instead of differencing. Together they
+take the budget from 107–149 % of signal to about 3 %.
+
+Full derivation: [`docs/measurement-budget.md`](docs/measurement-budget.md).
+Re-run it under your own assumptions:
+
+```bash
+python tools/leak_budget.py --capacity 250 --hold 60 --sealed --settled
+```
+
+## Field wiring
+
+The 4-pin XLR carries **two independent 4–20 mA loops** (two positives, two
+negatives), not one redundant loop:
+
+| Loop | Channel | Purpose |
+|---|---|---|
+| 1 | ELM3148 A | Primary load cell — leak mass |
+| 2 | ELM3148 B | Corroborating channel — rejects drift and vibration |
+
+Pin numbers are **not documented anywhere** and must be established by
+continuity check before wiring goes live —
+[Stage 1.2](docs/commissioning.md#12--the-4-pin-xlr).
 
 ## Acceptance thresholds
 
-Allowable leakage rates under ISO 5208 / API 6D scale with nominal bore and seat
-type. The threshold is therefore **a per-test input supplied with the valve
-ID**, never a compile-time constant — otherwise every valve size needs a
-rebuild. See `src/plc/` for how this is parameterised.
+ISO 5208 liquid rates scale with nominal bore, so the limit is computed per test
+from the valve's DN and rate class and arrives with the valve ID. A compiled-in
+limit would force a rebuild for every valve size.
 
 ## Applicable standards
 
 API 6A, API 6D and API 17D govern the test procedure; ISO 5208 defines the
-leakage rate classes. Copies are *not* redistributed in this repository — see
-below.
-
-## Document handling
-
-API standards are licensed documents and are not committed here. Obtain them
-through the organisation's subscription. Vendor datasheets and quotations are
-retained because they are the source of the numbers in `docs/`.
+leakage rate classes. These are licensed documents and are **not** redistributed
+here — obtain them through the organisation's subscription.
 
 ## Development
-
-Analysis tooling is Python:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Work happens on feature branches; `Sub-main` is the integration branch.
+`Sub-main` is the integration branch. Work happens on feature branches and
+merges via pull request.

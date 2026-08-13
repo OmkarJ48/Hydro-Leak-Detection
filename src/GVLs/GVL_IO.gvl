@@ -1,0 +1,43 @@
+(*
+    GVL_IO -- raw hardware process image.
+
+    Two 4-20 mA loops share one 4-pin XLR (two positives, two negatives).
+    That is two INDEPENDENT 2-wire loops in one shell, not one redundant loop:
+
+        Pin pair A -> Loop 1 -> ELM3148 ch.A  primary leak-mass channel
+        Pin pair B -> Loop 2 -> ELM3148 ch.B  corroborating channel
+
+    The corroborating channel exists to reject the two error terms a single
+    gravimetric channel cannot distinguish from a leak: thermal zero drift and
+    vibration. Both appear on the primary; neither appears on a flowmeter, and
+    a second reference cell sees drift but not leak.
+
+    WHICH PHYSICAL PIN IS WHICH (1/2/3/4) IS NOT DOCUMENTED ANYWHERE IN THIS
+    REPO OR THE TEMP CAB REPO. It must be established by continuity check
+    before wiring goes live -- see docs/commissioning.md Stage 1.2. Confirm the
+    two pairs are ISOLATED. If they share a common return it is one loop plus a
+    shared negative, and the ELM3148 differential inputs must be rewired.
+
+    DINT, not INT. The ELM3148 is a 24-bit converter presenting a 32-bit
+    process value. Read as 16 bits, a full 20-minute micro-leak signal spans
+    about six counts. This declaration IS the fix -- not the scaling formula.
+*)
+VAR_GLOBAL
+    (* --- ELM3148 channel A: primary load cell, 4-20 mA --- *)
+    diRawMassChA        AT %I* : DINT;
+    bChAUnderrange      AT %I* : BOOL;   (* < 4 mA: open loop or cable fault *)
+    bChAOverrange       AT %I* : BOOL;   (* > 20 mA: overload or short *)
+    bChAError           AT %I* : BOOL;
+
+    (* --- ELM3148 channel B: corroborating channel, 4-20 mA --- *)
+    diRawCorrobChB      AT %I* : DINT;
+    bChBUnderrange      AT %I* : BOOL;
+    bChBOverrange       AT %I* : BOOL;
+    bChBError           AT %I* : BOOL;
+
+    (* --- Catch vessel temperature, for drift correction --- *)
+    (* Optional but cheap. Logging it turns zero drift from an unknown into a
+       correctable term. See docs/measurement-budget.md 3.7. *)
+    diRawVesselTempC    AT %I* : DINT;
+    bTempChannelPresent        : BOOL := FALSE;
+END_VAR

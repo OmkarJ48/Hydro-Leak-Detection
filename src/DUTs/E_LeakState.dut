@@ -1,0 +1,24 @@
+(*
+    E_LeakState -- test sequence state for PRG_HydroLeakDetection.
+
+    IDLE      Waiting for bStartTestCycle. Outputs cleared.
+    SETTLING  Vessel on the cell, unpressurised. Creep decaying before tare.
+              Minutes, not seconds -- see docs/measurement-budget.md 2.3.
+    TARED     Zero captured at the END of settling, so creep already spent is
+              absorbed into the zero rather than counted as leakage.
+    TESTING   Pressurised hold. Samples entering the slope window.
+    ALARM     Leak rate exceeded the active ISO 5208 threshold continuously
+              for the debounce period. Latched.
+    ABORTED   Operator stop, loop fault, or fit quality below limit. A poor fit
+              means the rig was disturbed -- that is a retest, not a pass.
+*)
+TYPE E_LeakState :
+(
+    IDLE     := 0,
+    SETTLING := 1,
+    TARED    := 2,
+    TESTING  := 3,
+    ALARM    := 4,
+    ABORTED  := 5
+) UDINT;
+END_TYPE

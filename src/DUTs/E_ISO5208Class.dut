@@ -1,0 +1,18 @@
+(*
+    E_ISO5208Class -- liquid leakage rate class the valve under test is being
+    qualified against. Supplied per test alongside the valve ID and DN, never
+    compiled in: the allowable rate scales with nominal bore, so a fixed limit
+    would force a rebuild for every valve size.
+
+    RATE_A is "no visible leakage". In a gravimetric rig that is not zero, it
+    is bounded by the rig's own noise floor -- use the Stage 4.1 blank-test
+    result and record which number was used on the certificate.
+*)
+TYPE E_ISO5208Class :
+(
+    RATE_A := 0,
+    RATE_B := 1,
+    RATE_C := 2,
+    RATE_D := 3
+) UDINT;
+END_TYPE

@@ -1,0 +1,57 @@
+(*
+    GVL_HydroLeak -- calibration constants and acceptance thresholds.
+
+    CALIBRATION
+    The raw endpoints below are NOT theoretical LSB values. They come from the
+    two-point bench calibration in docs/commissioning.md Stage 2.4: a static
+    4 mA and 20 mA applied at the conditioner, raw counts recorded at both ends.
+    Datasheet arithmetic and the real chain disagree, and the real chain wins.
+
+    ACCEPTANCE THRESHOLDS
+    ISO 5208 liquid leakage rates scale with nominal bore, so the threshold is
+    computed per test from the valve's DN and rate class -- never a single
+    compiled-in number, which would force a rebuild for every valve size.
+
+    !! THE RATE-CLASS COEFFICIENTS BELOW ARE PLACEHOLDERS.                   !!
+    !! Populate them from the controlled copy of ISO 5208 before the system  !!
+    !! is used to pass or fail anything. The standard is licensed and is     !!
+    !! deliberately not redistributed in this repository. Verified values    !!
+    !! must be signed off per docs/commissioning.md Stage 7.                 !!
+*)
+VAR_GLOBAL CONSTANT
+    (* --- Two-point calibration, channel A. Replace after Stage 2.4. --- *)
+    c_diChA_Raw_4mA      : DINT  := 0;
+    c_diChA_Raw_20mA     : DINT  := 1048576;
+    c_rChA_SpanGrams     : REAL  := 1000.0;   (* rated capacity of fitted cell *)
+
+    (* --- Two-point calibration, channel B. --- *)
+    c_diChB_Raw_4mA      : DINT  := 0;
+    c_diChB_Raw_20mA     : DINT  := 1048576;
+    c_rChB_SpanEng       : REAL  := 1000.0;
+
+    (* --- Sequence timing --- *)
+    c_tSettleTime        : TIME  := T#5M;    (* creep decay before tare *)
+    c_tDiscardAtStart    : TIME  := T#2M;    (* early hold samples excluded *)
+    c_tAlarmDebounce     : TIME  := T#30S;   (* rate must persist before latch *)
+
+    (* --- Slope window --- *)
+    c_uiSlopeWindowSize  : UINT  := 600;     (* samples; 600 @ 1 Hz = 10 min *)
+    c_rSampleIntervalSec : REAL  := 1.0;
+    c_rMinR2             : REAL  := 0.90;    (* below this, retest not pass *)
+
+    (* --- Fluid --- *)
+    c_rFluidDensityDflt  : REAL  := 0.998;   (* water at 20 C, g/mL *)
+
+    (* --- ISO 5208 liquid rate classes: allowable rate = coeff * DN --------- *)
+    (* Units: mm3/s per mm of nominal bore.  PLACEHOLDERS -- SEE HEADER.       *)
+    c_rISO5208_RateA     : REAL  := 0.0;     (* no visible leakage *)
+    c_rISO5208_RateB     : REAL  := 0.0;     (* TO BE POPULATED *)
+    c_rISO5208_RateC     : REAL  := 0.0;     (* TO BE POPULATED *)
+    c_rISO5208_RateD     : REAL  := 0.0;     (* TO BE POPULATED *)
+
+    (* Rate A is "no visible leakage", which is not zero in practice -- it is
+       bounded by the rig's own noise floor. Use the blank-test result from
+       docs/commissioning.md Stage 4.1 as the working Rate A limit, and record
+       which number was used on every certificate. *)
+    c_rRateA_NoiseFloorMlMin : REAL := 0.0;  (* from Stage 4.1 blank test *)
+END_VAR
